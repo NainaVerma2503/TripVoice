@@ -23,7 +23,7 @@ The service will start on `http://localhost:5000`
 
 ## API Endpoints
 
-### Basic Endpoints
+### Basic Endpoints for testing 
 - **`/`** - Home endpoint with service information
 - **`/health`** - Health check endpoint
 - **`/api/status`** - API status and available endpoints
