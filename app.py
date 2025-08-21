@@ -2,12 +2,14 @@ from flask import Flask, jsonify
 from datetime import datetime
 from controllers.main_controller import main_bp
 from controllers.search_controller import search_bp
+from controllers.package_controller import package_bp
 
 app = Flask(__name__)
 
 # Register the controller blueprints
 app.register_blueprint(main_bp)
 app.register_blueprint(search_bp)
+app.register_blueprint(package_bp)
 
 @app.route('/')
 def home():
