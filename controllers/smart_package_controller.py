@@ -392,8 +392,8 @@ def call_genai_api(prompt):
     """
     try:
         # GenAI API configuration
-        api_url = "https://hackathon-openui-test.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview"
-        api_key = ""
+        api_url = ""
+        api_data = ""
         
         headers = {
             'Content-Type': 'application/json',
