@@ -2,12 +2,18 @@ from flask import Flask, jsonify
 from datetime import datetime
 from controllers.main_controller import main_bp
 from controllers.search_controller import search_bp
+from controllers.package_controller import package_bp
+from controllers.smart_package_controller import smart_package_bp
+from controllers.image_controller import image_bp
 
 app = Flask(__name__)
 
 # Register the controller blueprints
 app.register_blueprint(main_bp)
 app.register_blueprint(search_bp)
+app.register_blueprint(package_bp)
+app.register_blueprint(smart_package_bp)
+app.register_blueprint(image_bp)
 
 @app.route('/health')
 def health_check():
@@ -36,7 +42,8 @@ def api_status():
             '/test/params',
             '/api/search',
             '/api/package/create',
-            '/api/package/create-from-search'
+            '/api/package/create-from-search',
+            '/api/smart-package/create'
         ],
         'timestamp': datetime.now().isoformat()
     })
