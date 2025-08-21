@@ -1,11 +1,13 @@
 from flask import Flask, jsonify
 from datetime import datetime
 from controllers.main_controller import main_bp
+from controllers.trip_controller import trip_bp
 
 app = Flask(__name__)
 
-# Register the controller blueprint
+# Register the controller blueprints
 app.register_blueprint(main_bp)
+app.register_blueprint(trip_bp)
 
 @app.route('/')
 def home():
@@ -40,10 +42,13 @@ def api_status():
             '/test/random',
             '/test/status/<status_code>',
             '/test/headers',
-            '/test/params'
+            '/test/params',
+            '/api/trip/plan',
+            '/api/trip/health',
+            '/api/trip/cities'
         ],
         'timestamp': datetime.now().isoformat()
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000) 
+    app.run(debug=True, host='0.0.0.0', port=5001) 
