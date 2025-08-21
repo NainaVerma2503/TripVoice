@@ -1027,7 +1027,7 @@ def plan_trip():
             
             # Step 4: Return just the packages list
             packages = package_response.get('packages', [])
-            return jsonify(packages)
+            return jsonify({"packages": packages})
             
         except Exception as e:
             return jsonify({

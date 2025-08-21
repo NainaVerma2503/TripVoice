@@ -1,4 +1,4 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from datetime import datetime
 from dotenv import load_dotenv
 import os
@@ -18,6 +18,41 @@ app.register_blueprint(main_bp)
 app.register_blueprint(search_bp)
 app.register_blueprint(package_bp)
 app.register_blueprint(trip_bp)
+
+# CORS: allow localhost:3000 for browser requests (including preflight)
+ALLOWED_CORS_ORIGINS = {
+    'http://localhost:3000',
+    'http://127.0.0.1:3000'
+}
+
+@app.before_request
+def handle_preflight():
+    if request.method == 'OPTIONS':
+        response = app.make_default_options_response()
+        origin = request.headers.get('Origin')
+        if origin in ALLOWED_CORS_ORIGINS:
+            headers = response.headers
+            headers['Access-Control-Allow-Origin'] = origin
+            headers['Vary'] = 'Origin'
+            headers['Access-Control-Allow-Credentials'] = 'true'
+            headers['Access-Control-Allow-Headers'] = request.headers.get(
+                'Access-Control-Request-Headers', 'Content-Type, Authorization, X-Requested-With'
+            )
+            headers['Access-Control-Allow-Methods'] = request.headers.get(
+                'Access-Control-Request-Method', 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+            )
+        return response
+
+@app.after_request
+def add_cors_headers(response):
+    origin = request.headers.get('Origin')
+    if origin in ALLOWED_CORS_ORIGINS:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Vary'] = 'Origin'
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
+    return response
 
 @app.route('/')
 def home():
