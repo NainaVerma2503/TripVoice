@@ -176,4 +176,3 @@ def show_curl_command():
 if __name__ == "__main__":
     test_search_api()
     show_curl_command()
-

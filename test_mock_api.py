@@ -182,4 +182,3 @@ def show_curl_command():
 if __name__ == "__main__":
     test_mock_api()
     show_curl_command()
-

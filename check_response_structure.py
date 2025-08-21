@@ -111,4 +111,3 @@ def check_structure():
 
 if __name__ == "__main__":
     check_structure()
-

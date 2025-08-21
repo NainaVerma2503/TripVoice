@@ -176,4 +176,3 @@ def show_curl_command():
 if __name__ == "__main__":
     test_hotel_images()
     show_curl_command()
-
