@@ -19,7 +19,7 @@ A Flask API service with organized controllers and comprehensive testing endpoin
    python app.py
    ```
 
-The service will start on `http://localhost:6000`
+The service will start on `http://localhost:5000`
 
 ## API Endpoints
 
