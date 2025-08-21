@@ -44,7 +44,8 @@ CITY_MAPPING = {
     "srinagar": {"cityId": "36623", "city": "Srinagar", "state": "Jammu and Kashmir", "country": "IN", "locationType": "CITY", "airport": "SXR"},
     "noida": {"cityId": "35515", "city": "Noida", "state": "Uttar Pradesh", "country": "IN", "locationType": "CITY", "airport": "DEL"},
     "kochi": {"cityId": "34571", "city": "Kochi", "state": "Kerala", "country": "IN", "locationType": "CITY", "airport": "COK"},
-    "cochin": {"cityId": "34571", "city": "Kochi", "state": "Kerala", "country": "IN", "locationType": "CITY", "airport": "COK"}
+    "cochin": {"cityId": "34571", "city": "Kochi", "state": "Kerala", "country": "IN", "locationType": "CITY", "airport": "COK"},
+    "chandigarh": {"cityId": "32467", "city": "Chandigarh", "state": "Chandigarh", "country": "IN", "locationType": "CITY", "airport": "IXC"}
 }
 
 def get_default_dates():
@@ -68,6 +69,64 @@ def extract_city_info(text, city_type="destination"):
     
     # Default to Mumbai if no city found
     return CITY_MAPPING["mumbai"]
+
+def lookup_city_info(city_name):
+    """Dynamically look up city information from various sources"""
+    if not city_name:
+        return None
+    
+    city_name_lower = city_name.lower().strip()
+    
+    # First check our existing mapping
+    for city_key, city_info in CITY_MAPPING.items():
+        if city_key == city_name_lower or city_info["city"].lower() == city_name_lower:
+            return city_info
+    
+    # If not found in mapping, return basic info for now
+    # In a real system, you might call an external API to get city details
+    return {
+        "cityId": "",  # Will need to be looked up
+        "city": city_name,
+        "state": "",
+        "country": "",
+        "locationType": "CITY",
+        "airport": ""  # Will need to be looked up
+    }
+
+def post_process_ai_result(ai_result):
+    """Post-process AI result to add city information and airport codes"""
+    try:
+        print(f"DEBUG: Post-processing AI result: {ai_result}")
+        
+        # Look up destination city info
+        dest_city_name = ai_result.get("hotel", {}).get("city", "")
+        if dest_city_name:
+            city_info = lookup_city_info(dest_city_name)
+            if city_info:
+                # Update flight destination
+                ai_result["flight"]["to"] = city_info.get("airport", "")
+                # Update hotel city details
+                ai_result["hotel"]["cityId"] = city_info.get("cityId", "")
+                ai_result["hotel"]["state"] = city_info.get("state", "")
+                ai_result["hotel"]["country"] = city_info.get("country", "")
+        
+        # Look up source city info if mentioned
+        source_city_name = ai_result.get("flight", {}).get("from", "")
+        print(f"DEBUG: Source city name from AI: '{source_city_name}'")
+        if source_city_name and source_city_name != "empty string":
+            city_info = lookup_city_info(source_city_name)
+            print(f"DEBUG: City info for '{source_city_name}': {city_info}")
+            if city_info:
+                old_from = ai_result["flight"]["from"]
+                ai_result["flight"]["from"] = city_info.get("airport", "")
+                print(f"DEBUG: Updated flight.from from '{old_from}' to '{ai_result['flight']['from']}'")
+        
+        print(f"DEBUG: Final post-processed result: {ai_result}")
+        return ai_result
+        
+    except Exception as e:
+        print(f"DEBUG: Error in post-processing AI result: {str(e)}")
+        return ai_result
 
 def extract_source_and_destination(text):
     """Extract source and destination cities from text"""
@@ -293,14 +352,17 @@ def validate_trip_data(trip_data):
     """Validate trip data and return missing fields"""
     missing_fields = []
     
-    # Check flight fields
+    # Check flight fields - be comprehensive about what's missing
+    # Mark source as missing if no departure city is specified
     if not trip_data["flight"]["from"]:
         missing_fields.append("source")
+    
     if not trip_data["flight"]["depart_date"]:
         missing_fields.append("departure_date")
     
     # Check destination - consolidate all destination-related fields into one "destination" field
-    if not trip_data["flight"]["to"] or not trip_data["hotel"]["cityId"] or not trip_data["hotel"]["city"] or not trip_data["hotel"]["state"]:
+    # Mark destination as missing if we have no destination information at all
+    if not trip_data["flight"]["to"] and not trip_data["hotel"]["cityId"] and not trip_data["hotel"]["city"]:
         missing_fields.append("destination")
     
     # Don't check checkInDate and checkOutDate as missing - they'll be auto-calculated
@@ -447,10 +509,10 @@ IMPORTANT: If the text says "From  to [city]" (with empty departure), leave the 
         }}
       }}
     ],
-    "cityId": "city ID from mapping or empty string if not mentioned",
-    "city": "city name or empty string if not mentioned",
-    "state": "state name or empty string if not mentioned",
-    "country": "country code (IN for India, AE for Dubai) or empty string if not mentioned",
+    "cityId": "empty string - we will look this up later",
+    "city": "extract the actual city name mentioned in the text",
+    "state": "extract the state/province if mentioned, otherwise empty string",
+    "country": "extract the country if mentioned, otherwise empty string",
     "checkInDate": "same as depart_date or empty string if not mentioned",
     "checkOutDate": "day after depart_date or empty string if not mentioned",
     "version": "V2"
@@ -458,35 +520,86 @@ IMPORTANT: If the text says "From  to [city]" (with empty departure), leave the 
 }}
 
 CRITICAL EXTRACTION RULES - BE VERY SMART:
-1. **City Detection**: Look for ANY mention of cities, even in casual language like "visit Mumbai", "going to Goa", "trip to Bangalore", "visit [city]"
-2. **Source Detection**: Look for "from [city]", "leaving [city]", "departing [city]", "starting from [city]"
-3. **Date Detection**: Look for ANY date references like "3 days", "next week", "December", "15th March", "tomorrow", "next month", "next monday", "next tuesday", etc.
+1. **City Detection**: Look for ANY mention of cities, even in casual language like "visit Mumbai", "going to Goa", "trip to Bangalore", "visit [city]", "want to go to [city]", "planning to visit [city]", "thinking of going to [city]"
+2. **Source Detection**: Look for "from [city]", "leaving [city]", "departing [city]", "starting from [city]" - EXTRACT THE CITY NAME
+3. **Date Detection**: Look for ANY date references like "3 days", "next week", "December", "15th August", "26 aug 2025", "tomorrow", "next month", "next monday", "next tuesday", etc.
 4. **Adults Detection**: Look for "2 adults", "family of 4", "3 people", "me and my friend" (count as 2)
 
-**CRITICAL DESTINATION RULE**: If the text mentions "visit", "going to", "trip to", "travel to" but doesn't specify a city, you MUST detect this as missing destination information.
+**CRITICAL SOURCE CITY EXTRACTION**: When you see "from [city]" OR "source is [city]" OR "departing from [city]", you MUST:
+- Extract the city name (e.g., "from kolkata" → extract "kolkata", "source is chandigarh" → extract "chandigarh")
+- Set "from": "[city name]" in the flight object (NOT empty string)
+- Do NOT change any destination city information
+- Only update the departure city information
+
+**CRITICAL DESTINATION CITY EXTRACTION**: When you see "on [city]" or "to [city]", you MUST:
+- Extract the city name (e.g., "on delhi" → extract "delhi", "to mumbai" → extract "mumbai")
+- Set "to": "[city name]" in the flight object
+- Set hotel city fields accordingly
+
+**CONTEXT AWARENESS**: When updating existing trip data, be very smart about what to change:
+- If text only contains a date (like "on 26 aug 2025"), only update the date fields
+- If text only contains source info (like "from kolkata"), only update the departure city
+- If text only contains destination info (like "to mumbai"), only update the destination city
+- **CRITICAL**: When updating existing trip data, ONLY change the fields mentioned in the new text
+- Do NOT clear out existing city information that's not being updated
+- **SOURCE CITY RULES**: "from [city]" should ONLY update the departure airport, NOT the destination
+- **DESTINATION CITY RULES**: "to [city]" should ONLY update the destination, NOT the source
+
+**CRITICAL DESTINATION RULE**: If the text mentions "visit", "going to", "trip to", "travel to", "want to go to", "planning to visit", "thinking of going to" but doesn't specify a city, you MUST detect this as missing destination information.
+
+**SPECIAL PATTERN**: "want to go to [city]" should ALWAYS extract the city as destination. This is a very common pattern.
+
+**GENERAL TRIP PLANNING**: If the text is general like "planning for a trip", "plan a trip", "need a vacation", etc.:
+- This indicates the user wants to plan a trip but hasn't specified details yet
+- Set all city fields to empty strings
+- Set all date fields to empty strings
+- The system will mark these as missing fields for the user to fill in
+- This is the correct behavior for incomplete trip requests
+- **HELPFUL HINT**: You can suggest popular destinations like "Delhi", "Mumbai", "Goa", "Kolkata" in your response
 
 **CRITICAL DEPARTURE RULE**: If the text says "From  to [city]" or "From [empty] to [city]", leave the "from" field completely empty. Do NOT fill in any default city.
 
 **CRITICAL DATE RULE**: When you see relative dates like "next monday", "3 days", "next week", return them as text strings like "next monday", "3 days", "next week". DO NOT try to calculate actual dates. Our system will handle the date calculation.
 
-CITY MAPPING (ALWAYS USE THESE EXACT VALUES):
-- **Delhi**: airport=DEL, cityId=700193, state=Delhi, country=IN
-- **Mumbai**: airport=BOM, cityId=33719, state=Maharashtra, country=IN  
-- **Bangalore**: airport=BLR, cityId=32550, state=Karnataka, country=IN
-- **Chennai**: airport=MAA, cityId=33070, state=Tamil Nadu, country=IN
-- **Kolkata**: airport=CCU, cityId=34600, state=West Bengal, country=IN
-- **Jaipur**: airport=JAI, cityId=33968, state=Rajasthan, country=IN
-- **Hyderabad**: airport=HYD, cityId=33897, state=Telangana, country=IN
-- **Pune**: airport=PNQ, cityId=35943, state=Maharashtra, country=IN
-- **Goa**: airport=GOI, cityId=1138, state=Goa, country=IN
-- **Dubai**: airport=DXB, cityId=100074, state=Dubai, country=AE
+CITY EXTRACTION RULES:
+- Extract ANY city name mentioned in the text, regardless of whether it's in a predefined list
+- For city names, extract the exact name as mentioned (e.g., "Chandigarh", "Mumbai", "New York", "London")
+- For states/provinces, extract if mentioned (e.g., "Punjab", "Maharashtra", "California")
+- For countries, extract if mentioned (e.g., "India", "USA", "UK")
+- Do NOT limit yourself to any specific city list - extract whatever city is mentioned
 
 SMART EXTRACTION TIPS:
-- If text says "visit Mumbai", set "to": "BOM", "city": "Mumbai", "cityId": "33719", "state": "Maharashtra"
-- If text says "visit Goa", set "to": "GOI", "city": "Goa", "cityId": "1138", "state": "Goa"
-- If text says "visit Delhi", set "to": "DEL", "city": "Delhi", "cityId": "700193", "state": "Delhi"
-- If text says "visit Bangalore", set "to": "BLR", "city": "Bangalore", "cityId": "32550", "state": "Karnataka"
-- If text says "from Delhi", set "from": "DEL" 
+- If text says "visit [any city]", set "city": "[city name]", "to": "empty string", "cityId": "empty string"
+- If text says "going to [any city]", set "city": "[city name]", "to": "empty string", "cityId": "empty string"
+- If text says "trip to [any city]", set "city": "[city name]", "to": "empty string", "cityId": "empty string"
+- If text says "want to go to [any city]", set "city": "[city name]", "to": "empty string", "cityId": "empty string"
+- If text says "planning to visit [any city]", set "city": "[city name]", "to": "empty string", "cityId": "empty string"
+- If text says "thinking of going to [any city]", set "city": "[city name]", "to": "empty string", "cityId": "empty string"
+- If text says "from [any city]", set "from": "[city name]" (we'll look up airport code later)
+- For any city mentioned, extract the exact name as written in the text 
+- **SPECIFIC EXAMPLES**:
+  - If text says "want to go to Chandigarh", set "city": "Chandigarh", "to": "empty string", "cityId": "empty string"
+  - If text says "planning to visit Mumbai", set "city": "Mumbai", "to": "empty string", "cityId": "empty string"
+  - If text says "thinking of going to Goa", set "city": "Goa", "to": "empty string", "cityId": "empty string"
+  - **SOURCE CITY EXAMPLES**:
+    - If text says "from kolkata", set "from": "kolkata", do NOT change destination city fields
+    - If text says "from delhi", set "from": "delhi", do NOT change destination city fields  
+    - If text says "from mumbai", set "from": "mumbai", do NOT change destination city fields
+    - If text says "source is chandigarh", set "from": "chandigarh", do NOT change destination city fields
+    - If text says "departing from goa", set "from": "goa", do NOT change destination city fields
+    - **CRITICAL**: Source city updates should ONLY affect the "from" field, NOT hotel city fields
+  - **DESTINATION CITY EXAMPLES**:
+    - If text says "on delhi", set "to": "delhi", update hotel city to "Delhi"
+    - If text says "to mumbai", set "to": "mumbai", update hotel city to "Mumbai"
+    - If text says "on bangalore", set "to": "bangalore", update hotel city to "Bangalore"
+  - **COMBINED PATTERNS**:
+    - If text says "on delhi from chandigarh", set "from": "chandigarh", "to": "delhi"
+    - If text says "from mumbai to goa", set "from": "mumbai", "to": "goa"
+  - **GENERAL TRIP PLANNING EXAMPLES**:
+    - If text says "planning for a trip", leave all city fields empty (user needs to specify)
+    - If text says "plan a trip", leave all city fields empty (user needs to specify)
+    - If text says "need a vacation", leave all city fields empty (user needs to specify)
+    - If text says "want to travel", leave all city fields empty (user needs to specify)
 - If text says "3 days", return "3 days" as depart_date (our system will calculate the actual date)
 - If text says "next week", return "next week" as depart_date (our system will calculate the actual date)
 - If text says "next monday", return "next monday" as depart_date (our system will calculate the actual date)
@@ -498,6 +611,13 @@ SMART EXTRACTION TIPS:
 - If text says "next sunday", return "next sunday" as depart_date (our system will calculate the actual date)
 - If text says "tomorrow", return "tomorrow" as depart_date (our system will calculate the actual date)
 - If text says "December", return "December" as depart_date (our system will calculate the actual date)
+- **DATE-ONLY UPDATES**: If text only contains a date like "on 26 aug 2025", "26th August", "26/08/2025":
+  - Set depart_date to the extracted date
+  - Leave city fields empty (they come from existing trip data)
+  - This is an update to existing trip information
+  - **IMPORTANT**: Do NOT clear out existing city information when only updating dates
+  - If existing trip has "from": "DEL", keep it as "from": "DEL"
+  - If existing trip has "to": "IXC", keep it as "to": "IXC"
 - If text says "family of 4", set adults=4
 - If text says "me and my friend", set adults=2
 
@@ -505,7 +625,9 @@ SMART EXTRACTION TIPS:
 
 IMPORTANT: For relative dates, return the text exactly as mentioned (e.g., "next monday", "3 days"). Our system will handle the actual date calculation.
 
-Return ONLY valid JSON, no additional text. Be very thorough in extraction!"""
+Return ONLY valid JSON, no additional text. Be very thorough in extraction!
+
+**FINAL NOTE**: Remember, you are a helpful travel assistant. If the user gives vague information like "planning for a trip", it's okay to leave fields empty - the system will ask them to provide more details. This is better than guessing wrong information."""
         
         payload = {
             "messages": [
@@ -574,6 +696,10 @@ def extract_trip_info_hybrid(text):
     
     if ai_result:
         print(f"DEBUG: AI extraction successful: {ai_result}")
+        
+        # Post-process AI result to add city information
+        ai_result = post_process_ai_result(ai_result)
+        print(f"DEBUG: After post-processing: {ai_result}")
         
         # Convert relative dates to actual dates and handle duration
         ai_result = convert_relative_dates_with_duration(ai_result, text)
@@ -715,9 +841,25 @@ def convert_relative_dates_with_duration(trip_data, original_text):
             
         depart_date = trip_data['flight'].get('depart_date', '')
         
-        # If depart_date is empty or already a formatted date, return as is
-        if not depart_date or '/' in depart_date:
+        # If depart_date is empty, return as is
+        if not depart_date:
             return trip_data
+            
+        # If depart_date already has a "/" (formatted date), we still need to process it
+        # to set hotel check-in/check-out dates
+        if '/' in depart_date:
+            # Parse the formatted date to set hotel dates
+            try:
+                depart_datetime = datetime.strptime(depart_date, '%d/%m/%Y')
+                if 'hotel' in trip_data:
+                    trip_data['hotel']['checkInDate'] = depart_date
+                    # Default to next day for checkout
+                    checkout_datetime = depart_datetime + timedelta(days=1)
+                    trip_data['hotel']['checkOutDate'] = checkout_datetime.strftime('%d/%m/%Y')
+                return trip_data
+            except Exception as e:
+                print(f"DEBUG: Error parsing formatted date '{depart_date}': {str(e)}")
+                return trip_data
             
         # Convert relative dates to actual dates
         actual_dates = parse_relative_date(depart_date)
@@ -822,7 +964,34 @@ def parse_relative_date(relative_date_text):
         elif text == "next week":
             depart_date = today + timedelta(days=7)
         else:
-            return None
+            # Try to parse specific date formats like "26 aug 2025", "26th August 2025"
+            try:
+                # Handle formats like "26 aug 2025", "26th aug 2025", "26 august 2025"
+                import re
+                date_pattern = r'(\d+)(?:st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d{4})'
+                match = re.search(date_pattern, text)
+                if match:
+                    day = int(match.group(1))
+                    month_str = match.group(2).lower()
+                    year = int(match.group(3))
+                    
+                    # Month mapping
+                    month_map = {
+                        'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4, 'may': 5, 'jun': 6,
+                        'jul': 7, 'aug': 8, 'sep': 9, 'oct': 10, 'nov': 11, 'dec': 12
+                    }
+                    
+                    if month_str in month_map:
+                        month = month_map[month_str]
+                        depart_date = datetime(year, month, day)
+                        print(f"DEBUG: Parsed specific date: {day}/{month}/{year}")
+                    else:
+                        return None
+                else:
+                    return None
+            except Exception as e:
+                print(f"DEBUG: Error parsing specific date: {str(e)}")
+                return None
             
         # Calculate check-in and check-out dates
         check_in = depart_date
@@ -849,6 +1018,10 @@ def fill_missing_trip_details(text, previous_trip_data):
         if ai_result:
             print(f"DEBUG: AI extraction successful: {ai_result}")
             
+            # Post-process AI result to add city information and airport codes
+            ai_result = post_process_ai_result(ai_result)
+            print(f"DEBUG: After post-processing: {ai_result}")
+            
             # Create updated trip data by merging AI result with previous data
             updated_trip_data = previous_trip_data.copy()
             
@@ -860,13 +1033,13 @@ def fill_missing_trip_details(text, previous_trip_data):
                 if ai_flight.get("from") and ai_flight["from"] != "":
                     print(f"DEBUG: AI found departure city: {ai_flight['from']}")
                     updated_trip_data["flight"]["from"] = ai_flight["from"]
-                elif ai_flight.get("from") == "":
-                    print(f"DEBUG: AI confirms departure city should remain empty")
-                    updated_trip_data["flight"]["from"] = ""
+                # If AI returns empty string for departure city, preserve the existing one
+                # This happens when AI is only updating other fields like dates
                 
                 # Update other flight fields
-                if ai_flight.get("to"):
+                if ai_flight.get("to") and ai_flight["to"] != "":
                     updated_trip_data["flight"]["to"] = ai_flight["to"]
+                # If AI returns empty string for destination city, preserve the existing one
                 if ai_flight.get("depart_date"):
                     updated_trip_data["flight"]["depart_date"] = ai_flight["depart_date"]
                 if ai_flight.get("adults"):
@@ -878,13 +1051,13 @@ def fill_missing_trip_details(text, previous_trip_data):
             if ai_result.get("hotel"):
                 ai_hotel = ai_result["hotel"]
                 
-                if ai_hotel.get("cityId"):
+                if ai_hotel.get("cityId") and ai_hotel["cityId"] != "":
                     updated_trip_data["hotel"]["cityId"] = ai_hotel["cityId"]
-                if ai_hotel.get("city"):
+                if ai_hotel.get("city") and ai_hotel["city"] != "":
                     updated_trip_data["hotel"]["city"] = ai_hotel["city"]
-                if ai_hotel.get("state"):
+                if ai_hotel.get("state") and ai_hotel["state"] != "":
                     updated_trip_data["hotel"]["state"] = ai_hotel["state"]
-                if ai_hotel.get("country"):
+                if ai_hotel.get("country") and ai_hotel["country"] != "":
                     updated_trip_data["hotel"]["country"] = ai_hotel["country"]
                 if ai_hotel.get("checkInDate"):
                     updated_trip_data["hotel"]["checkInDate"] = ai_hotel["checkInDate"]
@@ -1262,10 +1435,7 @@ def call_package_controller(search_response, user_interests, budget_constraint, 
     try:
         # Prepare package request
         package_request = {
-            "search_response": {
-                "flights": search_response.get('flights', []),
-                "hotels": search_response.get('hotels', [])
-            },
+            "search_response": search_response,  # Pass the entire search response
             "user_interests": user_interests,
             "budget_constraint": budget_constraint,
             "num_packages": num_packages

@@ -68,7 +68,8 @@ def search_flights_and_hotels():
                 'total_hotels_found': len(transformed_hotels)
             },
             'flights': transformed_flights,
-            'hotels': transformed_hotels
+            'hotels': transformed_hotels,
+            'original_flight_data': flight_data  # Pass through the original flight data including departure date
         })
 
     except Exception as e:
@@ -96,6 +97,7 @@ def call_flight_api(flight_data):
         }
 
         print(f"🔍 DEBUG: Calling Cleartrip Flight API with params: {params}")
+        print(f"🔍 DEBUG: Flight data received: {flight_data}")
 
         # Make the API call
         headers = {

@@ -6,6 +6,7 @@ import random
 
 package_bp = Blueprint('package', __name__)
 
+
 @package_bp.route('/api/package/create-from-search', methods=['POST'])
 def create_package_from_search():
     """
@@ -13,25 +14,26 @@ def create_package_from_search():
     """
     try:
         data = request.get_json()
-        
+
         if not data:
             return jsonify({"error": "No data provided"}), 400
-        
+
         # Extract search response data and user interests
         search_response = data.get('search_response', {})
+        original_flight_data = data.get('original_flight_data', {})  # Get original flight data
         user_interests = data.get('user_interests', '')
         budget_constraint = data.get('budget_constraint', 100000)  # Default 1L INR
         num_packages = data.get('num_packages', 3)  # Default 3 packages
-        
+
         if not search_response:
             return jsonify({"error": "Search response data required"}), 400
-        
+
         if not user_interests:
             return jsonify({"error": "User interests required"}), 400
-        
+
         # Create personalized packages using OpenAI
-        packages = create_personalized_packages(search_response, user_interests, budget_constraint, num_packages)
-        
+        packages = create_personalized_packages(search_response, user_interests, budget_constraint, num_packages, original_flight_data)
+
         return jsonify({
             "status": "success",
             "packages": packages,
@@ -40,44 +42,60 @@ def create_package_from_search():
             "budget_constraint": budget_constraint,
             "timestamp": datetime.now().isoformat()
         })
-        
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-def create_personalized_packages(search_response, user_interests, budget_constraint, num_packages):
+
+def create_personalized_packages(search_response, user_interests, budget_constraint, num_packages, original_flight_data=None):
     """
     Create personalized packages using OpenAI API based on search data and user interests
     """
     try:
         # Create prompt for OpenAI
-        prompt = create_openai_prompt(search_response, user_interests, budget_constraint, num_packages)
-        
+        prompt = create_openai_prompt(search_response, user_interests, budget_constraint, num_packages, original_flight_data)
+
         # Call OpenAI API
         response = call_openai_api(prompt)
-        
+
         if response:
             packages = parse_openai_response(response)
             if packages:
                 return packages
-        
+
         # If OpenAI fails, create fallback packages
         print("OpenAI API failed, creating fallback packages")
-        return create_fallback_packages(search_response, user_interests, budget_constraint, num_packages)
-        
+        return create_fallback_packages(search_response, user_interests, budget_constraint, num_packages, original_flight_data)
+
     except Exception as e:
         print(f"Error creating personalized packages: {e}")
-        return create_fallback_packages(search_response, user_interests, budget_constraint, num_packages)
+        return create_fallback_packages(search_response, user_interests, budget_constraint, num_packages, original_flight_data)
 
-def create_openai_prompt(search_response, user_interests, budget_constraint, num_packages):
+
+def create_openai_prompt(search_response, user_interests, budget_constraint, num_packages, original_flight_data=None):
     """
     Create a detailed prompt for OpenAI package creation
     """
-    # Get current dates for the prompt
+    # Get departure date from original flight data or use current date as fallback
     from datetime import datetime, timedelta
-    tomorrow = datetime.now() + timedelta(days=1)
-    departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
-    arrival_time = tomorrow.replace(hour=12, minute=30, second=0, microsecond=0)
     
+    if original_flight_data and original_flight_data.get('depart_date'):
+        # Parse the departure date from trip data (format: DD/MM/YYYY)
+        try:
+            depart_date = datetime.strptime(original_flight_data['depart_date'], '%d/%m/%Y')
+            departure_time = depart_date.replace(hour=10, minute=0, second=0, microsecond=0)
+            arrival_time = depart_date.replace(hour=12, minute=30, second=0, microsecond=0)
+        except ValueError:
+            # Fallback to tomorrow if date parsing fails
+            tomorrow = datetime.now() + timedelta(days=1)
+            departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
+            arrival_time = tomorrow.replace(hour=12, minute=30, second=0, microsecond=0)
+    else:
+        # Fallback to tomorrow if no departure date
+        tomorrow = datetime.now() + timedelta(days=1)
+        departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
+        arrival_time = tomorrow.replace(hour=12, minute=30, second=0, microsecond=0)
+
     prompt = f"""
     Create {num_packages} personalized travel packages based on the following search response data and user interests:
 
@@ -158,6 +176,7 @@ def create_openai_prompt(search_response, user_interests, budget_constraint, num
 
     return prompt
 
+
 def call_openai_api(prompt):
     """
     Call the OpenAI API to generate personalized packages
@@ -166,12 +185,12 @@ def call_openai_api(prompt):
         # OpenAI API configuration
         api_url = "https://hackathon-openui-test.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview"
         api_key = "B4kxaCF6fe7KnBbRsDhk8EZZhvAz7MdVPXab3qJzZbahvpctLIT5JQQJ99BCAC77bzfXJ3w3AAABACOGTN88"
-        
+
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {api_key}'
         }
-        
+
         payload = {
             "messages": [
                 {
@@ -183,33 +202,34 @@ def call_openai_api(prompt):
             "temperature": 0.7,
             "top_p": 1
         }
-        
+
         response = requests.post(api_url, headers=headers, json=payload, timeout=300)
-        
+
         if response.status_code == 200:
             result = response.json()
             return result.get('choices', [{}])[0].get('message', {}).get('content', '')
         else:
             print(f"OpenAI API error: {response.status_code} - {response.text}")
             return None
-            
+
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
         return None
+
 
 def update_package_dates(packages):
     """
     Update all dates in packages to use current dates
     """
     from datetime import datetime, timedelta
-    
+
     tomorrow = datetime.now() + timedelta(days=1)
     departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
     arrival_time = tomorrow.replace(hour=12, minute=30, second=0, microsecond=0)
-    
+
     departure_str = departure_time.strftime('%Y-%m-%dT%H:%M:%S')
     arrival_str = arrival_time.strftime('%Y-%m-%dT%H:%M:%S')
-    
+
     for package in packages:
         if 'flightDetails' in package:
             flight_details = package['flightDetails']
@@ -218,8 +238,9 @@ def update_package_dates(packages):
                 flight_details['departureDateTime'] = departure_str
             if 'arrivalDateTime' in flight_details:
                 flight_details['arrivalDateTime'] = arrival_str
-    
+
     return packages
+
 
 def parse_openai_response(response_text):
     """
@@ -228,37 +249,59 @@ def parse_openai_response(response_text):
     try:
         if not response_text:
             return []
-        
+
         # Try to extract JSON from the response
         start_idx = response_text.find('[')
         end_idx = response_text.rfind(']')
-        
+
         if start_idx != -1 and end_idx != -1:
             json_str = response_text[start_idx:end_idx + 1]
             packages = json.loads(json_str)
-            
+
             # Update dates to current dates
             packages = update_package_dates(packages)
-            
+
             return packages
         else:
             print("No valid JSON found in OpenAI response")
             return []
-            
+
     except Exception as e:
         print(f"Error parsing OpenAI response: {e}")
         return []
 
-def create_fallback_packages(search_response, user_interests, budget_constraint, num_packages):
+
+def create_fallback_packages(search_response, user_interests, budget_constraint, num_packages, original_flight_data=None):
     """
     Create fallback packages when OpenAI API fails
     """
     packages = []
-    
+
     # Extract flight and hotel data from search response
-    flight_data = search_response.get('flightDetails', {})
-    hotel_data = search_response.get('hotelDetails', {})
+    # The search response has 'flights' and 'hotels' arrays, not individual objects
+    flights = search_response.get('flights', [])
+    hotels = search_response.get('hotels', [])
     
+    print(f"DEBUG: Search response keys: {list(search_response.keys())}")
+    print(f"DEBUG: Flights count: {len(flights)}")
+    print(f"DEBUG: Hotels count: {len(hotels)}")
+    
+    # Get the first available flight and hotel data
+    flight_data = flights[0] if flights else {}
+    hotel_data = hotels[0] if hotels else {}
+    
+    print(f"DEBUG: First flight data: {flight_data}")
+    print(f"DEBUG: First hotel data: {hotel_data}")
+    
+    # If no flights found, use original flight data as fallback
+    if not flight_data and original_flight_data:
+        flight_data = {
+            'departureAirportCode': original_flight_data.get('from', 'DEL'),
+            'arrivalAirportCode': original_flight_data.get('to', 'BOM'),
+            'departureCity': 'Chandigarh' if original_flight_data.get('from') == 'IXC' else 'New Delhi',
+            'arrivalCity': 'Delhi' if original_flight_data.get('to') == 'DEL' else 'Mumbai'
+        }
+
     # Create different package types
     package_types = [
         {
@@ -268,7 +311,7 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
             "multiplier": 0.8
         },
         {
-            "type": "MID_RANGE", 
+            "type": "MID_RANGE",
             "name": "Comfort Plus Package",
             "description": "Balanced comfort and value with premium amenities and convenient location.",
             "multiplier": 1.0
@@ -280,20 +323,20 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
             "multiplier": 1.5
         }
     ]
-    
+
     for i in range(min(num_packages, len(package_types))):
         config = package_types[i]
-        
+
         # Calculate prices based on multiplier
         base_flight_price = flight_data.get('price', {}).get('value', 5000)
         base_hotel_price = int(hotel_data.get('price', '5000').replace(',', ''))
-        
+
         flight_price = int(base_flight_price * config['multiplier'])
         hotel_price = int(base_hotel_price * config['multiplier'])
         activities_price = int((flight_price + hotel_price) * 0.2)
         taxes = int((flight_price + hotel_price + activities_price) * 0.1)
         total_price = flight_price + hotel_price + activities_price + taxes
-        
+
         # Ensure package is within budget
         if total_price > budget_constraint:
             # Scale down to fit budget
@@ -303,13 +346,13 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
             activities_price = int(activities_price * scale_factor)
             taxes = int(taxes * scale_factor)
             total_price = flight_price + hotel_price + activities_price + taxes
-        
+
         # Create itinerary based on user interests
         itinerary = create_interest_based_itinerary(user_interests, i + 1)
-        
+
         # Create attractions based on user interests
         attractions = create_interest_based_attractions(user_interests)
-        
+
         package = {
             "packageName": config["name"],
             "packageType": config["type"],
@@ -319,19 +362,19 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
             "description": config["description"],
             "flightDetails": {
                 "airline": flight_data.get('airline', 'Air India'),
-                "flightNumber": flight_data.get('flightNumber', 'AI 1234'),
+                "flightNumber": flight_data.get('id', 'AI 1234'),  # Use 'id' from search response
                 "price": {
                     "value": flight_price,
                     "currency": "INR"
                 },
-                "departureAirportCode": flight_data.get('departureAirportCode', 'DEL'),
+                "departureAirportCode": flight_data.get('departureAirport', 'DEL'),  # Use 'departureAirport' from search response
                 "departureCity": flight_data.get('departureCity', 'New Delhi'),
-                "departureDateTime": flight_data.get('departureDateTime', get_current_departure_time()),
-                "arrivalAirportCode": flight_data.get('arrivalAirportCode', 'BOM'),
+                "departureDateTime": flight_data.get('departureTime', get_current_departure_time(original_flight_data)),
+                "arrivalAirportCode": flight_data.get('arrivalAirport', 'BOM'),  # Use 'arrivalAirport' from search response
                 "arrivalCity": flight_data.get('arrivalCity', 'Mumbai'),
-                "arrivalDateTime": flight_data.get('arrivalDateTime', get_current_arrival_time()),
+                "arrivalDateTime": flight_data.get('arrivalTime', get_current_arrival_time(original_flight_data)),
                 "stops": flight_data.get('stops', 'Direct'),
-                "duration": flight_data.get('duration', '2h 0m')
+                "duration": flight_data.get('totalDuration', '2h 0m')  # Use 'totalDuration' from search response
             },
             "hotelDetails": {
                 "name": hotel_data.get('name', 'Comfort Hotel'),
@@ -345,17 +388,18 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
             "suggestedItinerary": itinerary,
             "popularAttractions": attractions
         }
-        
+
         packages.append(package)
-    
+
     return packages
+
 
 def create_interest_based_itinerary(user_interests, package_num):
     """
     Create itinerary based on user interests
     """
     interests_lower = user_interests.lower()
-    
+
     if 'beach' in interests_lower or 'sea' in interests_lower:
         return [
             {
@@ -550,12 +594,13 @@ def create_interest_based_itinerary(user_interests, package_num):
             }
         ]
 
+
 def create_interest_based_attractions(user_interests):
     """
     Create attractions list based on user interests
     """
     interests_lower = user_interests.lower()
-    
+
     if 'beach' in interests_lower or 'sea' in interests_lower:
         return [
             "Crystal Clear Beaches",
@@ -605,16 +650,40 @@ def create_interest_based_attractions(user_interests):
             "Entertainment Venues"
         ]
 
-def get_current_departure_time():
-    """Get current departure time (tomorrow at 10:00 AM)"""
+
+def get_current_departure_time(original_flight_data=None):
+    """Get departure time from original flight data or fallback to tomorrow at 10:00 AM"""
     from datetime import datetime, timedelta
+    
+    if original_flight_data and original_flight_data.get('depart_date'):
+        # Parse the departure date from trip data (format: DD/MM/YYYY)
+        try:
+            depart_date = datetime.strptime(original_flight_data['depart_date'], '%d/%m/%Y')
+            departure_time = depart_date.replace(hour=10, minute=0, second=0, microsecond=0)
+            return departure_time.strftime('%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            pass
+    
+    # Fallback to tomorrow at 10:00 AM
     tomorrow = datetime.now() + timedelta(days=1)
     departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
     return departure_time.strftime('%Y-%m-%dT%H:%M:%S')
 
-def get_current_arrival_time():
-    """Get current arrival time (tomorrow at 12:00 PM)"""
+
+def get_current_arrival_time(original_flight_data=None):
+    """Get arrival time from original flight data or fallback to tomorrow at 12:00 PM"""
     from datetime import datetime, timedelta
+    
+    if original_flight_data and original_flight_data.get('depart_date'):
+        # Parse the departure date from trip data (format: DD/MM/YYYY)
+        try:
+            depart_date = datetime.strptime(original_flight_data['depart_date'], '%d/%m/%Y')
+            arrival_time = depart_date.replace(hour=12, minute=0, second=0, microsecond=0)
+            return arrival_time.strftime('%Y-%m-%dT%H:%M:%S')
+        except ValueError:
+            pass
+    
+    # Fallback to tomorrow at 12:00 PM
     tomorrow = datetime.now() + timedelta(days=1)
     arrival_time = tomorrow.replace(hour=12, minute=0, second=0, microsecond=0)
     return arrival_time.strftime('%Y-%m-%dT%H:%M:%S')
