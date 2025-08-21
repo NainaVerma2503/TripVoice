@@ -9,15 +9,6 @@ app = Flask(__name__)
 app.register_blueprint(main_bp)
 app.register_blueprint(search_bp)
 
-@app.route('/')
-def home():
-    """Home endpoint"""
-    return jsonify({
-        'message': 'Welcome to TripVoice API',
-        'status': 'running',
-        'timestamp': datetime.now().isoformat()
-    })
-
 @app.route('/health')
 def health_check():
     """Health check endpoint to verify the service is working"""
@@ -26,6 +17,28 @@ def health_check():
         'service': 'TripVoice',
         'timestamp': datetime.now().isoformat(),
         'version': '1.0.0'
+    })
+
+@app.route('/api/status')
+def api_status():
+    """API status endpoint"""
+    return jsonify({
+        'api_status': 'operational',
+        'endpoints': [
+            '/',
+            '/health',
+            '/api/status',
+            '/test/hello',
+            '/test/echo',
+            '/test/random',
+            '/test/status/<status_code>',
+            '/test/headers',
+            '/test/params',
+            '/api/search',
+            '/api/package/create',
+            '/api/package/create-from-search'
+        ],
+        'timestamp': datetime.now().isoformat()
     })
 
 if __name__ == '__main__':

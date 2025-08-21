@@ -2,6 +2,7 @@ from flask import Blueprint, jsonify, request
 from datetime import datetime
 import requests
 import json
+import os
 
 search_bp = Blueprint('search', __name__)
 
@@ -9,29 +10,6 @@ search_bp = Blueprint('search', __name__)
 def search_flights_and_hotels():
     """
     API endpoint that accepts flight and hotel search data and calls external APIs
-    Expected request body format:
-    {
-        "flight": {
-            "from": "DEL",
-            "to": "BOM", 
-            "depart_date": "22/08/2025",
-            "adults": 1,
-            "intl": "n"
-        },
-        "hotel": {
-            "pageSize": 5,
-            "pageNo": 1,
-            "useCaseContext": "SRP_PAGE",
-            "roomAllocations": [...],
-            "cityId": "32550",
-            "city": "Bangalore",
-            "state": "Karnataka", 
-            "country": "IN",
-            "checkInDate": "29/08/2025",
-            "checkOutDate": "30/08/2025",
-            "version": "V2"
-        }
-    }
     """
     try:
         # Get the request data
@@ -115,16 +93,15 @@ def call_hotel_api(hotel_data):
     Call the hotel search API with the provided data
     """
     try:
-        # Hotel API endpoint
-        url = 'https://qa2new.cleartrip.com/hotel/orchestrator/v2/search'
+        # Build the hotel API URL
+        base_url = 'https://qa2new.cleartrip.com/hotel/orchestrator/v2/search'
         
-        # Headers for hotel API
+        # Make the API call
         headers = {
             'Content-Type': 'application/json'
         }
         
-        # Make the API call
-        response = requests.post(url, json=hotel_data, headers=headers, timeout=30)
+        response = requests.post(base_url, json=hotel_data, headers=headers, timeout=30)
         
         return {
             'status_code': response.status_code,
@@ -145,60 +122,3 @@ def call_hotel_api(hotel_data):
             'error': f'Unexpected error: {str(e)}'
         }
 
-@search_bp.route('/api/flight/search', methods=['POST'])
-def search_flights_only():
-    """
-    API endpoint for flight search only
-    """
-    try:
-        flight_data = request.get_json()
-        
-        if not flight_data:
-            return jsonify({
-                'error': 'No flight data provided',
-                'status': 'error'
-            }), 400
-        
-        flight_response = call_flight_api(flight_data)
-        
-        return jsonify({
-            'status': 'success',
-            'timestamp': datetime.now().isoformat(),
-            'flight_response': flight_response
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'error': str(e),
-            'status': 'error',
-            'timestamp': datetime.now().isoformat()
-        }), 500
-
-@search_bp.route('/api/hotel/search', methods=['POST'])
-def search_hotels_only():
-    """
-    API endpoint for hotel search only
-    """
-    try:
-        hotel_data = request.get_json()
-        
-        if not hotel_data:
-            return jsonify({
-                'error': 'No hotel data provided',
-                'status': 'error'
-            }), 400
-        
-        hotel_response = call_hotel_api(hotel_data)
-        
-        return jsonify({
-            'status': 'success',
-            'timestamp': datetime.now().isoformat(),
-            'hotel_response': hotel_response
-        })
-        
-    except Exception as e:
-        return jsonify({
-            'error': str(e),
-            'status': 'error',
-            'timestamp': datetime.now().isoformat()
-        }), 500
