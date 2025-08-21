@@ -72,12 +72,19 @@ def create_openai_prompt(search_response, user_interests, budget_constraint, num
     """
     Create a detailed prompt for OpenAI package creation
     """
+    # Get current dates for the prompt
+    from datetime import datetime, timedelta
+    tomorrow = datetime.now() + timedelta(days=1)
+    departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
+    arrival_time = tomorrow.replace(hour=12, minute=30, second=0, microsecond=0)
+    
     prompt = f"""
     Create {num_packages} personalized travel packages based on the following search response data and user interests:
 
     USER INTERESTS: {user_interests}
     BUDGET CONSTRAINT: {budget_constraint} INR
     NUMBER OF PACKAGES: {num_packages}
+    CURRENT DATE: {tomorrow.strftime('%Y-%m-%d')}
 
     SEARCH RESPONSE DATA:
     {json.dumps(search_response, indent=2)}
@@ -90,57 +97,50 @@ def create_openai_prompt(search_response, user_interests, budget_constraint, num
     5. Include detailed itineraries that match the user's interests
     6. Suggest relevant attractions and activities
     7. Provide accurate price breakdowns
+    8. IMPORTANT: Use current dates for all flight times - departure: {departure_time.strftime('%Y-%m-%dT%H:%M:%S')}, arrival: {arrival_time.strftime('%Y-%m-%dT%H:%M:%S')}
 
     PACKAGE STRUCTURE (return as JSON array):
     [
         {{
-            "packageName": "Descriptive package name",
-            "packageType": "BUDGET/MID_RANGE/LUXURY/PREMIUM",
+            "packageName": "Descriptive package name (e.g., 'One-Way Luxury Arrival: The St. Regis Goa')",
+            "packageType": "BUDGET/MID_RANGE/LUXURY/PREMIUM/ONE_WAY_LUXURY",
             "totalPrice": total_price_in_inr,
             "currency": "INR",
-            "duration": "X Nights / Y Days",
-            "description": "Detailed package description",
+            "duration": "X Nights / Y Days Hotel Stay",
+            "description": "Detailed package description explaining the experience and what's included",
             "flightDetails": {{
                 "airline": "Airline name",
-                "flightNumber": "Flight number",
+                "flightNumber": "Flight number (can include multiple flights like 'AI 2803 / AI 2657')",
                 "price": {{
                     "value": flight_price,
                     "currency": "INR"
                 }},
                 "departureAirportCode": "Airport code",
                 "departureCity": "City name",
-                "departureDateTime": "DateTime",
+                "departureDateTime": "DateTime or 'N/A' if not applicable",
                 "arrivalAirportCode": "Airport code",
                 "arrivalCity": "City name",
-                "arrivalDateTime": "DateTime",
+                "arrivalDateTime": "DateTime or 'N/A' if not applicable",
                 "stops": "Direct/1 stop/etc",
-                "duration": "Xh Ym"
+                "duration": "Xh Ym or '0h 0m' if not applicable"
             }},
             "hotelDetails": {{
-                "name": "Hotel name",
+                "name": "Hotel name (e.g., 'The St. Regis Goa Resort')",
                 "starRating": rating_1_to_5,
-                "price": "price_string",
-                "address": "Full address",
-                "city": "City name",
-                "amenities": ["amenity1", "amenity2", "amenity3"],
+                "price": "price_string (e.g., '1300')",
+                "address": "Full address with postal code",
+                "city": "City name with location (e.g., 'Mobor Beach, Goa')",
+                "amenities": ["amenity1", "amenity2", "amenity3", "amenity4"],
                 "images": ["image_url1", "image_url2"]
             }},
             "suggestedItinerary": [
                 {{
                     "day": day_number,
-                    "title": "Day title",
+                    "title": "Day title (e.g., 'Arrival in Paradise')",
                     "activities": ["activity1", "activity2", "activity3"]
                 }}
             ],
-            "popularAttractions": ["attraction1", "attraction2", "attraction3"],
-            "whyThisPackage": "Explanation of why this package matches user interests",
-            "budgetBreakdown": {{
-                "flight": flight_price,
-                "hotel": hotel_price,
-                "activities": activities_price,
-                "taxes": taxes_amount,
-                "total": total_price
-            }}
+            "popularAttractions": ["attraction1", "attraction2", "attraction3", "attraction4"]
         }}
     ]
 
@@ -165,7 +165,7 @@ def call_openai_api(prompt):
     try:
         # OpenAI API configuration
         api_url = "https://hackathon-openui-test.openai.azure.com/openai/deployments/gpt-4o/chat/completions?api-version=2025-01-01-preview"
-        api_key = ""  # Set your Azure OpenAI API key here or use environment variable
+        api_key = "B4kxaCF6fe7KnBbRsDhk8EZZhvAz7MdVPXab3qJzZbahvpctLIT5JQQJ99BCAC77bzfXJ3w3AAABACOGTN88"
         
         headers = {
             'Content-Type': 'application/json',
@@ -184,7 +184,7 @@ def call_openai_api(prompt):
             "top_p": 1
         }
         
-        response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+        response = requests.post(api_url, headers=headers, json=payload, timeout=300)
         
         if response.status_code == 200:
             result = response.json()
@@ -196,6 +196,30 @@ def call_openai_api(prompt):
     except Exception as e:
         print(f"Error calling OpenAI API: {e}")
         return None
+
+def update_package_dates(packages):
+    """
+    Update all dates in packages to use current dates
+    """
+    from datetime import datetime, timedelta
+    
+    tomorrow = datetime.now() + timedelta(days=1)
+    departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
+    arrival_time = tomorrow.replace(hour=12, minute=30, second=0, microsecond=0)
+    
+    departure_str = departure_time.strftime('%Y-%m-%dT%H:%M:%S')
+    arrival_str = arrival_time.strftime('%Y-%m-%dT%H:%M:%S')
+    
+    for package in packages:
+        if 'flightDetails' in package:
+            flight_details = package['flightDetails']
+            # Update departure and arrival times to current dates
+            if 'departureDateTime' in flight_details:
+                flight_details['departureDateTime'] = departure_str
+            if 'arrivalDateTime' in flight_details:
+                flight_details['arrivalDateTime'] = arrival_str
+    
+    return packages
 
 def parse_openai_response(response_text):
     """
@@ -212,6 +236,10 @@ def parse_openai_response(response_text):
         if start_idx != -1 and end_idx != -1:
             json_str = response_text[start_idx:end_idx + 1]
             packages = json.loads(json_str)
+            
+            # Update dates to current dates
+            packages = update_package_dates(packages)
+            
             return packages
         else:
             print("No valid JSON found in OpenAI response")
@@ -287,7 +315,7 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
             "packageType": config["type"],
             "totalPrice": total_price,
             "currency": "INR",
-            "duration": "4 Nights / 5 Days",
+            "duration": "4 Nights / 5 Days Hotel Stay",
             "description": config["description"],
             "flightDetails": {
                 "airline": flight_data.get('airline', 'Air India'),
@@ -298,10 +326,10 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
                 },
                 "departureAirportCode": flight_data.get('departureAirportCode', 'DEL'),
                 "departureCity": flight_data.get('departureCity', 'New Delhi'),
-                "departureDateTime": flight_data.get('departureDateTime', '2025-08-22T10:00:00'),
+                "departureDateTime": flight_data.get('departureDateTime', get_current_departure_time()),
                 "arrivalAirportCode": flight_data.get('arrivalAirportCode', 'BOM'),
                 "arrivalCity": flight_data.get('arrivalCity', 'Mumbai'),
-                "arrivalDateTime": flight_data.get('arrivalDateTime', '2025-08-22T12:00:00'),
+                "arrivalDateTime": flight_data.get('arrivalDateTime', get_current_arrival_time()),
                 "stops": flight_data.get('stops', 'Direct'),
                 "duration": flight_data.get('duration', '2h 0m')
             },
@@ -315,15 +343,7 @@ def create_fallback_packages(search_response, user_interests, budget_constraint,
                 "images": hotel_data.get('images', ['/images/hotels/hotel_001.jpg'])
             },
             "suggestedItinerary": itinerary,
-            "popularAttractions": attractions,
-            "whyThisPackage": f"This {config['type'].lower()} package is perfect for your interests in {user_interests.lower()} and fits within your budget of {budget_constraint} INR.",
-            "budgetBreakdown": {
-                "flight": flight_price,
-                "hotel": hotel_price,
-                "activities": activities_price,
-                "taxes": taxes,
-                "total": total_price
-            }
+            "popularAttractions": attractions
         }
         
         packages.append(package)
@@ -584,3 +604,17 @@ def create_interest_based_attractions(user_interests):
             "Scenic Viewpoints",
             "Entertainment Venues"
         ]
+
+def get_current_departure_time():
+    """Get current departure time (tomorrow at 10:00 AM)"""
+    from datetime import datetime, timedelta
+    tomorrow = datetime.now() + timedelta(days=1)
+    departure_time = tomorrow.replace(hour=10, minute=0, second=0, microsecond=0)
+    return departure_time.strftime('%Y-%m-%dT%H:%M:%S')
+
+def get_current_arrival_time():
+    """Get current arrival time (tomorrow at 12:00 PM)"""
+    from datetime import datetime, timedelta
+    tomorrow = datetime.now() + timedelta(days=1)
+    arrival_time = tomorrow.replace(hour=12, minute=0, second=0, microsecond=0)
+    return arrival_time.strftime('%Y-%m-%dT%H:%M:%S')

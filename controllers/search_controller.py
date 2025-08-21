@@ -58,8 +58,31 @@ def search_flights_and_hotels():
         print("🔍 DEBUG: Hotel API Response Status:", hotel_response.get('status_code'))
         
         # Transform raw Cleartrip data into desired format
+        print(f"🔍 DEBUG: Flight Response Status: {flight_response.get('status_code')}")
+        print(f"🔍 DEBUG: Hotel Response Status: {hotel_response.get('status_code')}")
+        
         transformed_flights = transform_flight_data(flight_response)
         transformed_hotels = transform_hotel_data(hotel_response)
+        
+        print(f"🔍 DEBUG: Transformed Flights Count: {len(transformed_flights)}")
+        print(f"🔍 DEBUG: Transformed Hotels Count: {len(transformed_hotels)}")
+        
+        # Track data source
+        data_source = {
+            "flights": "real_api",
+            "hotels": "real_api"
+        }
+        
+        # If no real data, use simulated data
+        if not transformed_flights:
+            print("⚠️ No real flight data found, using simulated data")
+            transformed_flights = generate_simulated_flights_for_search(flight_data)
+            data_source["flights"] = "simulated"
+        
+        if not transformed_hotels:
+            print("⚠️ No real hotel data found, using simulated data")
+            transformed_hotels = generate_simulated_hotels_for_search(hotel_data)
+            data_source["hotels"] = "simulated"
         
         return jsonify({
             'status': 'success',
@@ -73,7 +96,8 @@ def search_flights_and_hotels():
                 'total_hotels_found': len(transformed_hotels)
             },
             'flights': transformed_flights,  # ← TRANSFORMED DATA (your desired format)
-            'hotels': transformed_hotels     # ← TRANSFORMED DATA (your desired format)
+            'hotels': transformed_hotels,    # ← TRANSFORMED DATA (your desired format)
+            'data_source': data_source       # ← INDICATES WHETHER REAL OR SIMULATED DATA
         })
         
     except Exception as e:
@@ -107,7 +131,7 @@ def call_flight_api(flight_data):
             'accept': 'application/json'
         }
         
-        response = requests.get(base_url, params=params, headers=headers, timeout=30)
+        response = requests.get(base_url, params=params, headers=headers, timeout=300)
         
         print(f"🔍 DEBUG: Flight API Response Status: {response.status_code}")
         print(f"🔍 DEBUG: Flight API Response Headers: {dict(response.headers)}")
@@ -144,7 +168,15 @@ def generate_simulated_flights_for_search(flight_data):
     
     from_city = flight_data.get('from', 'DEL')
     to_city = flight_data.get('to', 'BOM')
-    depart_date = flight_data.get('depart_date', '22/08/2025')
+    
+    # Use current date if depart_date is missing
+    if not flight_data.get('depart_date'):
+        from datetime import datetime, timedelta
+        tomorrow = datetime.now() + timedelta(days=1)
+        depart_date = tomorrow.strftime('%d/%m/%Y')
+    else:
+        depart_date = flight_data.get('depart_date')
+    
     adults = flight_data.get('adults', 1)
     
     # Different airlines for variety
@@ -278,7 +310,7 @@ def call_hotel_api(hotel_data):
         }
         
         # Make the API call
-        response = requests.post(url, json=hotel_data, headers=headers, timeout=30)
+        response = requests.post(url, json=hotel_data, headers=headers, timeout=300)
         
         print(f"🏨 DEBUG: Hotel API Response Status: {response.status_code}")
         print(f"🏨 DEBUG: Hotel API Response Headers: {dict(response.headers)}")
@@ -314,8 +346,21 @@ def generate_simulated_hotels_for_search(hotel_data):
     """Generate realistic simulated hotel data for search results"""
     
     city = hotel_data.get('city', 'Mumbai')
-    checkin = hotel_data.get('checkInDate', '22/08/2025')
-    checkout = hotel_data.get('checkOutDate', '23/08/2025')
+    
+    # Use current dates if check-in/check-out dates are missing
+    from datetime import datetime, timedelta
+    tomorrow = datetime.now() + timedelta(days=1)
+    day_after = tomorrow + timedelta(days=1)
+    
+    if not hotel_data.get('checkInDate'):
+        checkin = tomorrow.strftime('%d/%m/%Y')
+    else:
+        checkin = hotel_data.get('checkInDate')
+    
+    if not hotel_data.get('checkOutDate'):
+        checkout = day_after.strftime('%d/%m/%Y')
+    else:
+        checkout = hotel_data.get('checkOutDate')
     
     # Different hotel types for variety
     hotel_types = [

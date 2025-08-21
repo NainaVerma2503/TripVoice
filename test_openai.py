@@ -8,9 +8,9 @@ import json
 # Test Azure OpenAI API directly
 try:
     client = AzureOpenAI(
-        api_key=os.getenv("AZURE_OPENAI_KEY", ""),
-        api_version=os.getenv("AZURE_API_VERSION", ""),
-        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", "")
+        api_key="B4kxaCF6fe7KnBbRsDhk8EZZhvAz7MdVPXab3qJzZbahvpctLIT5JQQJ99BCAC77bzfXJ3w3AAABACOGTN88",
+        api_version="2025-01-01-preview",
+        azure_endpoint="https://hackathon-openui-test.openai.azure.com/"
     )
     
     print("Testing OpenAI API...")

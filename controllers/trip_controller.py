@@ -7,16 +7,12 @@ import re
 from dateutil import parser
 
 # Azure OpenAI configuration - Using your actual credentials
-# AZURE_OPENAI_ENDPOINT = "https://hackathon-openui-test.openai.azure.com/"
-# AZURE_OPENAI_KEY = "B4kxaCF6fe7KnBbRsDhk8EZZhvAz7MdVPXab3qJzZbahvpctLIT5JQQJ99BCAC77bzfXJ3w3AAABACOGTN88"
-# AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
-# AZURE_API_VERSION = "2025-01-01-preview"
+AZURE_OPENAI_ENDPOINT = "https://hackathon-openui-test.openai.azure.com/"
+AZURE_OPENAI_KEY = "B4kxaCF6fe7KnBbRsDhk8EZZhvAz7MdVPXab3qJzZbahvpctLIT5JQQJ99BCAC77bzfXJ3w3AAABACOGTN88"
+AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
+AZURE_API_VERSION = "2025-01-01-preview"
 
-print(f"DEBUG: Azure OpenAI configuration loaded:")
-print(f"DEBUG: Endpoint: {AZURE_OPENAI_ENDPOINT}")
-print(f"DEBUG: Deployment: {AZURE_OPENAI_DEPLOYMENT}")
-print(f"DEBUG: API Version: {AZURE_API_VERSION}")
-print(f"DEBUG: Key: {AZURE_OPENAI_KEY[:20]}...")
+
 
 trip_bp = Blueprint('trip', __name__)
 
@@ -525,7 +521,7 @@ Return ONLY valid JSON, no additional text. Be very thorough in extraction!"""
         print(f"DEBUG: Sending request to Azure OpenAI: {url}")
         
         # Make the HTTP request
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = requests.post(url, headers=headers, json=payload, timeout=300)
         
         if response.status_code == 200:
             response_data = response.json()
@@ -923,7 +919,41 @@ def fill_missing_trip_details(text, previous_trip_data):
         # Return original data with error
         return previous_trip_data, ["server_error"]
 
-
+def extract_user_interests_from_text(text):
+    """
+    Extract user interests from natural language text
+    """
+    text_lower = text.lower()
+    interests = []
+    
+    # Define interest keywords
+    interest_keywords = {
+        "luxury": ["luxury", "premium", "high-end", "exclusive", "5-star", "five star"],
+        "budget": ["budget", "cheap", "affordable", "economical", "low-cost"],
+        "cultural": ["cultural", "heritage", "historical", "traditional", "monuments", "temples"],
+        "adventure": ["adventure", "trekking", "hiking", "outdoor", "wildlife", "nature"],
+        "food": ["food", "cuisine", "dining", "restaurant", "local food", "street food"],
+        "shopping": ["shopping", "market", "mall", "retail", "buy"],
+        "wellness": ["wellness", "spa", "relaxation", "yoga", "meditation", "health"],
+        "beach": ["beach", "coastal", "seaside", "ocean", "waterfront"],
+        "business": ["business", "corporate", "meeting", "conference", "work"],
+        "family": ["family", "kids", "children", "family-friendly"],
+        "romantic": ["romantic", "honeymoon", "couple", "romance", "intimate"],
+        "nightlife": ["nightlife", "party", "clubs", "bars", "entertainment"]
+    }
+    
+    # Check for each interest category
+    for interest, keywords in interest_keywords.items():
+        for keyword in keywords:
+            if keyword in text_lower:
+                interests.append(interest)
+                break
+    
+    # If no specific interests found, add general travel
+    if not interests:
+        interests = ["general travel"]
+    
+    return ", ".join(interests)
 
 
 @trip_bp.route('/api/trip/plan', methods=['POST'])
@@ -964,66 +994,45 @@ def plan_trip():
                 'trip_data': trip_data
             }), 400
         
-        # Success case - return data in the exact format requested
-        response = {
-            "flights": [
-                {
-                    "airline": "IndiGo",
-                    "arrivalAirport": trip_data["flight"]["to"],
-                    "arrivalTerminal": "1",
-                    "arrivalTime": "2025-08-22T15:05:00.000+05:30",
-                    "departureAirport": trip_data["flight"]["from"],
-                    "departureTerminal": "1D",
-                    "departureTime": "2025-08-22T13:25:00.000+05:30",
-                    "flightNumber": "6E-129",
-                    "id": "sample_flight_001",
-                    "legs": [
-                        {
-                            "arrivalTerminal": "1",
-                            "departureTerminal": "1D",
-                            "flightNumber": "6E-129"
-                        }
-                    ],
-                    "stopDetails": "Direct flight",
-                    "stops": 0,
-                    "totalDuration": "1h 40m"
-                }
-            ],
-            "hotels": [
-                {
-                    "amenities": [
-                        "WiFi",
-                        "Pool",
-                        "Spa",
-                        "Restaurant"
-                    ],
-                    "id": "sample_hotel_001",
-                    "location": {
-                        "address": f"Sample Address, {trip_data['hotel']['city']}",
-                        "area": "City Center",
-                        "city": trip_data["hotel"]["city"]
-                    },
-                    "name": "Sample Hotel",
-                    "price": {
-                        "amount": 15000,
-                        "currency": "INR"
-                    },
-                    "rating": 5
-                }
-            ],
-            "search_summary": {
-                "adults": trip_data["flight"]["adults"],
-                "departure_date": trip_data["flight"]["depart_date"],
-                "from": trip_data["flight"]["from"],
-                "to": trip_data["flight"]["to"],
-                "total_flights_found": 1,
-                "total_hotels_found": 1
-            },
-            "status": "success",
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        return jsonify(response)
+        # Success case - call search and package controllers
+        try:
+            # Step 1: Call Search Controller with trip data
+            search_response = call_search_controller(trip_data["flight"], trip_data["hotel"])
+            
+            if not search_response or search_response.get('status') != 'success':
+                return jsonify({
+                    "error": "Search failed",
+                    "search_error": search_response.get('error', 'Unknown error')
+                }), 500
+            
+            # Step 2: Extract user interests from text or use defaults
+            user_interests = extract_user_interests_from_text(text)
+            budget_constraint = data.get('budget_constraint', 100000)
+            num_packages = data.get('num_packages', 3)
+            
+            # Step 3: Call Package Controller with search results
+            package_response = call_package_controller(
+                search_response, 
+                user_interests, 
+                budget_constraint, 
+                num_packages
+            )
+            
+            if not package_response or package_response.get('status') != 'success':
+                return jsonify({
+                    "error": "Package creation failed",
+                    "package_error": package_response.get('error', 'Unknown error'),
+                    "search_summary": search_response.get('search_summary', {})
+                }), 500
+            
+            # Step 4: Return just the packages list
+            packages = package_response.get('packages', [])
+            return jsonify(packages)
+            
+        except Exception as e:
+            return jsonify({
+                "error": f"Error in trip planning flow: {str(e)}"
+            }), 500
         
     except Exception as e:
         return jsonify({
@@ -1156,4 +1165,122 @@ def get_cities():
         'count': len(CITY_MAPPING),
         'timestamp': datetime.now().isoformat()
     }) 
+
+@trip_bp.route('/api/trip/create-packages', methods=['POST'])
+def create_trip_packages():
+    """
+    Orchestrate the complete flow: Search → Package Creation → Response
+    """
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        
+        # Extract user preferences and search criteria
+        user_interests = data.get('user_interests', '')
+        budget_constraint = data.get('budget_constraint', 100000)
+        num_packages = data.get('num_packages', 3)
+        
+        # Extract search criteria
+        flight_data = data.get('flight', {})
+        hotel_data = data.get('hotel', {})
+        
+        if not flight_data or not hotel_data:
+            return jsonify({"error": "Both flight and hotel search criteria required"}), 400
+        
+        # Step 1: Call Search Controller
+        search_response = call_search_controller(flight_data, hotel_data)
+        
+        if not search_response or search_response.get('status') != 'success':
+            return jsonify({
+                "error": "Search failed",
+                "search_error": search_response.get('error', 'Unknown error')
+            }), 500
+        
+        # Step 2: Call Package Controller with search results
+        package_response = call_package_controller(
+            search_response, 
+            user_interests, 
+            budget_constraint, 
+            num_packages
+        )
+        
+        if not package_response or package_response.get('status') != 'success':
+            return jsonify({
+                "error": "Package creation failed",
+                "package_error": package_response.get('error', 'Unknown error')
+            }), 500
+        
+        # Step 3: Return final response
+        return jsonify({
+            "status": "success",
+            "timestamp": datetime.now().isoformat(),
+            "search_summary": search_response.get('search_summary', {}),
+            "packages": package_response.get('packages', []),
+            "package_count": package_response.get('package_count', 0),
+            "user_interests": user_interests,
+            "budget_constraint": budget_constraint,
+            "flow": "Trip Controller → Search Controller → Package Controller"
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "status": "error",
+            "timestamp": datetime.now().isoformat()
+        }), 500
+
+def call_search_controller(flight_data, hotel_data):
+    """
+    Call the search controller to get flight and hotel data
+    """
+    try:
+        # Prepare search request
+        search_request = {
+            "flight": flight_data,
+            "hotel": hotel_data
+        }
+        
+        # Use HTTP call to search controller
+        search_url = "http://localhost:6000/api/search"
+        response = requests.post(search_url, json=search_request, timeout=300)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "error": f"Search API failed: {response.status_code}"}
+        
+    except Exception as e:
+        print(f"Error calling search controller: {e}")
+        return {"status": "error", "error": str(e)}
+
+def call_package_controller(search_response, user_interests, budget_constraint, num_packages):
+    """
+    Call the package controller to create packages from search results
+    """
+    try:
+        # Prepare package request
+        package_request = {
+            "search_response": {
+                "flights": search_response.get('flights', []),
+                "hotels": search_response.get('hotels', [])
+            },
+            "user_interests": user_interests,
+            "budget_constraint": budget_constraint,
+            "num_packages": num_packages
+        }
+        
+        # Use HTTP call to package controller
+        package_url = "http://localhost:6000/api/package/create-from-search"
+        response = requests.post(package_url, json=package_request, timeout=300)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"status": "error", "error": f"Package API failed: {response.status_code}"}
+        
+    except Exception as e:
+        print(f"Error calling package controller: {e}")
+        return {"status": "error", "error": str(e)} 
 
