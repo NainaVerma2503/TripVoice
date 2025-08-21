@@ -1,5 +1,11 @@
 from flask import Flask, jsonify
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
+
 from controllers.main_controller import main_bp
 from controllers.trip_controller import trip_bp
 
@@ -51,4 +57,4 @@ def api_status():
     })
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001) 
+    app.run(debug=True, host='0.0.0.0', port=5002)

@@ -6,11 +6,17 @@ import os
 import re
 from dateutil import parser
 
-# Azure OpenAI configuration
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-AZURE_OPENAI_KEY = os.getenv("AZURE_OPENAI_KEY", "")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
-AZURE_API_VERSION = os.getenv("AZURE_API_VERSION", "")
+# Azure OpenAI configuration - Using your actual credentials
+# AZURE_OPENAI_ENDPOINT = "https://hackathon-openui-test.openai.azure.com/"
+# AZURE_OPENAI_KEY = "B4kxaCF6fe7KnBbRsDhk8EZZhvAz7MdVPXab3qJzZbahvpctLIT5JQQJ99BCAC77bzfXJ3w3AAABACOGTN88"
+# AZURE_OPENAI_DEPLOYMENT = "gpt-4o"
+# AZURE_API_VERSION = "2025-01-01-preview"
+
+print(f"DEBUG: Azure OpenAI configuration loaded:")
+print(f"DEBUG: Endpoint: {AZURE_OPENAI_ENDPOINT}")
+print(f"DEBUG: Deployment: {AZURE_OPENAI_DEPLOYMENT}")
+print(f"DEBUG: API Version: {AZURE_API_VERSION}")
+print(f"DEBUG: Key: {AZURE_OPENAI_KEY[:20]}...")
 
 trip_bp = Blueprint('trip', __name__)
 
@@ -408,10 +414,9 @@ def extract_trip_info_with_ai(text):
     try:
         print(f"DEBUG: Starting Azure OpenAI extraction for text: {text}")
         
-        # Construct the Azure OpenAI API URL exactly as in your curl example
+        # Use direct HTTP requests to avoid SSL certificate issues
         url = f"{AZURE_OPENAI_ENDPOINT}openai/deployments/{AZURE_OPENAI_DEPLOYMENT}/chat/completions?api-version={AZURE_API_VERSION}"
         
-        # Prepare headers exactly as in your curl example
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {AZURE_OPENAI_KEY}"
@@ -419,6 +424,8 @@ def extract_trip_info_with_ai(text):
         
         # Prepare the prompt to extract trip information and return structured data
         prompt = f"""Extract trip planning information from this text: "{text}" and return ONLY a JSON object in this exact format:
+
+IMPORTANT: If the text says "From  to [city]" (with empty departure), leave the "from" field empty. Do NOT default to any city.
 
 {{
   "flight": {{
@@ -462,6 +469,8 @@ CRITICAL EXTRACTION RULES - BE VERY SMART:
 
 **CRITICAL DESTINATION RULE**: If the text mentions "visit", "going to", "trip to", "travel to" but doesn't specify a city, you MUST detect this as missing destination information.
 
+**CRITICAL DEPARTURE RULE**: If the text says "From  to [city]" or "From [empty] to [city]", leave the "from" field completely empty. Do NOT fill in any default city.
+
 **CRITICAL DATE RULE**: When you see relative dates like "next monday", "3 days", "next week", return them as text strings like "next monday", "3 days", "next week". DO NOT try to calculate actual dates. Our system will handle the date calculation.
 
 CITY MAPPING (ALWAYS USE THESE EXACT VALUES):
@@ -502,20 +511,18 @@ IMPORTANT: For relative dates, return the text exactly as mentioned (e.g., "next
 
 Return ONLY valid JSON, no additional text. Be very thorough in extraction!"""
         
-        # Prepare the request payload exactly as in your curl example
         payload = {
             "messages": [
                 {"role": "system", "content": "You are a travel planning assistant that extracts structured information from natural language text and returns it in the exact JSON format requested. Always return valid JSON."},
                 {"role": "user", "content": prompt}
             ],
             "max_tokens": 4096,
-            "temperature": 1,
+            "temperature": 0.1,
             "top_p": 1,
             "model": AZURE_OPENAI_DEPLOYMENT
         }
         
         print(f"DEBUG: Sending request to Azure OpenAI: {url}")
-        print(f"DEBUG: Payload: {json.dumps(payload, indent=2)}")
         
         # Make the HTTP request
         response = requests.post(url, headers=headers, json=payload, timeout=30)
@@ -523,33 +530,33 @@ Return ONLY valid JSON, no additional text. Be very thorough in extraction!"""
         if response.status_code == 200:
             response_data = response.json()
             ai_response = response_data['choices'][0]['message']['content'].strip()
-            print(f"DEBUG: Raw AI Response: {ai_response}")
+        print(f"DEBUG: Raw AI Response: {ai_response}")
+        
+        # Try to parse the JSON response
+        try:
+            # Remove any markdown formatting if present
+            if ai_response.startswith('```json'):
+                ai_response = ai_response.split('```json')[1]
+            if ai_response.endswith('```'):
+                ai_response = ai_response.rsplit('```', 1)[0]
             
-            # Try to parse the JSON response
-            try:
-                # Remove any markdown formatting if present
-                if ai_response.startswith('```json'):
-                    ai_response = ai_response.split('```json')[1]
-                if ai_response.endswith('```'):
-                    ai_response = ai_response.rsplit('```', 1)[0]
-                
-                # Clean up the response
-                ai_response = ai_response.strip()
-                if ai_response.startswith('```'):
-                    ai_response = ai_response[3:]
-                if ai_response.endswith('```'):
-                    ai_response = ai_response[:-3]
-                
-                print(f"DEBUG: Cleaned AI Response: {ai_response}")
-                
-                parsed_data = json.loads(ai_response.strip())
-                print(f"DEBUG: Successfully parsed AI data: {parsed_data}")
-                return parsed_data
-                
-            except json.JSONDecodeError as e:
-                print(f"DEBUG: Failed to parse AI JSON: {e}")
-                print(f"DEBUG: Problematic response: {ai_response}")
-                return None
+            # Clean up the response
+            ai_response = ai_response.strip()
+            if ai_response.startswith('```'):
+                ai_response = ai_response[3:]
+            if ai_response.endswith('```'):
+                ai_response = ai_response[:-3]
+            
+            print(f"DEBUG: Cleaned AI Response: {ai_response}")
+            
+            parsed_data = json.loads(ai_response.strip())
+            print(f"DEBUG: Successfully parsed AI data: {parsed_data}")
+            return parsed_data
+            
+        except json.JSONDecodeError as e:
+            print(f"DEBUG: Failed to parse AI JSON: {e}")
+            print(f"DEBUG: Problematic response: {ai_response}")
+            return None
         else:
             print(f"DEBUG: Azure OpenAI API error - Status: {response.status_code}")
             print(f"DEBUG: Response: {response.text}")
@@ -566,6 +573,9 @@ def extract_trip_info_hybrid(text):
     
     # Try AI extraction first
     ai_result = extract_trip_info_with_ai(text)
+    print(f"DEBUG: AI extraction result: {ai_result}")
+    print(f"DEBUG: AI extraction result type: {type(ai_result)}")
+    
     if ai_result:
         print(f"DEBUG: AI extraction successful: {ai_result}")
         
@@ -833,66 +843,83 @@ def parse_relative_date(relative_date_text):
         return None
 
 def fill_missing_trip_details(text, previous_trip_data):
-    """Fill missing details in previous trip_data based on new text input"""
+    """Fill missing details in previous trip_data based on new text input using AI"""
     try:
-        # Create a copy of previous data to modify
-        updated_trip_data = previous_trip_data.copy()
+        print(f"DEBUG: Using AI to fill missing trip details for: {text}")
         
-        # Extract new information from text
-        source_city, dest_city = extract_source_and_destination(text)
-        adults_count = extract_adults_count(text)
-        dates = extract_dates(text)
+        # Use AI extraction to get the complete information
+        ai_result = extract_trip_info_with_ai(text)
         
-        print(f"DEBUG: Text: '{text}'")
-        print(f"DEBUG: Extracted source: {source_city['city'] if source_city else 'None'}")
-        print(f"DEBUG: Extracted destination: {dest_city['city'] if dest_city else 'None'}")
-        print(f"DEBUG: Extracted adults: {adults_count}")
-        print(f"DEBUG: Extracted dates: {dates}")
+        if ai_result:
+            print(f"DEBUG: AI extraction successful: {ai_result}")
+            
+            # Create updated trip data by merging AI result with previous data
+            updated_trip_data = previous_trip_data.copy()
+            
+            # Update flight information from AI result
+            if ai_result.get("flight"):
+                ai_flight = ai_result["flight"]
+                
+                # Only update departure city if AI found one (don't default to BOM)
+                if ai_flight.get("from") and ai_flight["from"] != "":
+                    print(f"DEBUG: AI found departure city: {ai_flight['from']}")
+                    updated_trip_data["flight"]["from"] = ai_flight["from"]
+                elif ai_flight.get("from") == "":
+                    print(f"DEBUG: AI confirms departure city should remain empty")
+                    updated_trip_data["flight"]["from"] = ""
+                
+                # Update other flight fields
+                if ai_flight.get("to"):
+                    updated_trip_data["flight"]["to"] = ai_flight["to"]
+                if ai_flight.get("depart_date"):
+                    updated_trip_data["flight"]["depart_date"] = ai_flight["depart_date"]
+                if ai_flight.get("adults"):
+                    updated_trip_data["flight"]["adults"] = ai_flight["adults"]
+                if ai_flight.get("intl"):
+                    updated_trip_data["flight"]["intl"] = ai_flight["intl"]
+            
+            # Update hotel information from AI result
+            if ai_result.get("hotel"):
+                ai_hotel = ai_result["hotel"]
+                
+                if ai_hotel.get("cityId"):
+                    updated_trip_data["hotel"]["cityId"] = ai_hotel["cityId"]
+                if ai_hotel.get("city"):
+                    updated_trip_data["hotel"]["city"] = ai_hotel["city"]
+                if ai_hotel.get("state"):
+                    updated_trip_data["hotel"]["state"] = ai_hotel["state"]
+                if ai_hotel.get("country"):
+                    updated_trip_data["hotel"]["country"] = ai_hotel["country"]
+                if ai_hotel.get("checkInDate"):
+                    updated_trip_data["hotel"]["checkInDate"] = ai_hotel["checkInDate"]
+                if ai_hotel.get("checkOutDate"):
+                    updated_trip_data["hotel"]["checkOutDate"] = ai_hotel["checkOutDate"]
+                
+                # Update room allocations if adults count changed
+                if ai_hotel.get("roomAllocations") and ai_hotel["roomAllocations"]:
+                    adults_count = ai_hotel["roomAllocations"][0]["adults"]["count"]
+                    updated_trip_data["hotel"]["roomAllocations"][0]["adults"]["count"] = adults_count
+            
+            # Convert relative dates to actual dates
+            updated_trip_data = convert_relative_dates_with_duration(updated_trip_data, text)
+            print(f"DEBUG: After relative date conversion: {updated_trip_data}")
+            
+            # Validate the updated data
+            missing_fields = validate_trip_data(updated_trip_data)
+            print(f"DEBUG: Missing fields after AI update: {missing_fields}")
+            
+            if missing_fields:
+                return updated_trip_data, missing_fields
+            return updated_trip_data, []
         
-        # Update flight information if missing
-        if not updated_trip_data["flight"]["from"] and source_city:
-            print(f"DEBUG: Updating flight from: {source_city['airport']}")
-            updated_trip_data["flight"]["from"] = source_city["airport"]
-        
-        if not updated_trip_data["flight"]["to"] and dest_city:
-            print(f"DEBUG: Updating flight to: {dest_city['airport']}")
-            updated_trip_data["flight"]["to"] = dest_city["airport"]
-            # Also update hotel city info if destination changed
-            if dest_city:
-                updated_trip_data["hotel"]["cityId"] = dest_city["cityId"]
-                updated_trip_data["hotel"]["city"] = dest_city["city"]
-                updated_trip_data["hotel"]["state"] = dest_city["state"]
-                updated_trip_data["hotel"]["country"] = dest_city["country"]
-                # Update international flag
-                updated_trip_data["flight"]["intl"] = "y" if dest_city["country"] != "IN" else "n"
-        
-        if not updated_trip_data["flight"]["depart_date"] and dates:
-            print(f"DEBUG: Updating departure date: {dates['depart_date']}")
-            updated_trip_data["flight"]["depart_date"] = dates['depart_date']
-            # Auto-calculate check-in and check-out dates based on departure date
-            updated_trip_data["hotel"]["checkInDate"] = dates['check_in']
-            updated_trip_data["hotel"]["checkOutDate"] = dates['check_out']
-        
-        # Update adults count if provided
-        if adults_count != updated_trip_data["flight"]["adults"]:
-            print(f"DEBUG: Updating adults count: {adults_count}")
-            updated_trip_data["flight"]["adults"] = adults_count
-            updated_trip_data["hotel"]["roomAllocations"][0]["adults"]["count"] = adults_count
-        
-        print(f"DEBUG: Final flight from: {updated_trip_data['flight']['from']}")
-        print(f"DEBUG: Final flight to: {updated_trip_data['flight']['to']}")
-        print(f"DEBUG: Final departure date: {updated_trip_data['flight']['depart_date']}")
-        
-        # Validate the updated data
-        missing_fields = validate_trip_data(updated_trip_data)
-        
-        if missing_fields:
-            return updated_trip_data, missing_fields
-        
-        return updated_trip_data, []
+        else:
+            print(f"DEBUG: AI extraction failed, falling back to rule-based")
+            # Fallback to rule-based extraction only if AI fails completely
+            return extract_trip_info_from_text(text)
         
     except Exception as e:
         print(f"DEBUG: Error in fill_missing_trip_details: {str(e)}")
+        print(f"DEBUG: Error type: {type(e)}")
         # Return original data with error
         return previous_trip_data, ["server_error"]
 
@@ -937,8 +964,66 @@ def plan_trip():
                 'trip_data': trip_data
             }), 400
         
-        # Success case - return only trip_data
-        return jsonify(trip_data)
+        # Success case - return data in the exact format requested
+        response = {
+            "flights": [
+                {
+                    "airline": "IndiGo",
+                    "arrivalAirport": trip_data["flight"]["to"],
+                    "arrivalTerminal": "1",
+                    "arrivalTime": "2025-08-22T15:05:00.000+05:30",
+                    "departureAirport": trip_data["flight"]["from"],
+                    "departureTerminal": "1D",
+                    "departureTime": "2025-08-22T13:25:00.000+05:30",
+                    "flightNumber": "6E-129",
+                    "id": "sample_flight_001",
+                    "legs": [
+                        {
+                            "arrivalTerminal": "1",
+                            "departureTerminal": "1D",
+                            "flightNumber": "6E-129"
+                        }
+                    ],
+                    "stopDetails": "Direct flight",
+                    "stops": 0,
+                    "totalDuration": "1h 40m"
+                }
+            ],
+            "hotels": [
+                {
+                    "amenities": [
+                        "WiFi",
+                        "Pool",
+                        "Spa",
+                        "Restaurant"
+                    ],
+                    "id": "sample_hotel_001",
+                    "location": {
+                        "address": f"Sample Address, {trip_data['hotel']['city']}",
+                        "area": "City Center",
+                        "city": trip_data["hotel"]["city"]
+                    },
+                    "name": "Sample Hotel",
+                    "price": {
+                        "amount": 15000,
+                        "currency": "INR"
+                    },
+                    "rating": 5
+                }
+            ],
+            "search_summary": {
+                "adults": trip_data["flight"]["adults"],
+                "departure_date": trip_data["flight"]["depart_date"],
+                "from": trip_data["flight"]["from"],
+                "to": trip_data["flight"]["to"],
+                "total_flights_found": 1,
+                "total_hotels_found": 1
+            },
+            "status": "success",
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        return jsonify(response)
         
     except Exception as e:
         return jsonify({
@@ -984,6 +1069,69 @@ def test_ai_extraction():
             'message': 'Internal server error'
         }), 500
 
+@trip_bp.route('/api/trip/sample', methods=['GET'])
+def get_sample_response():
+    """Get sample response in the exact format requested"""
+    sample_response = {
+        "flights": [
+            {
+                "airline": "IndiGo",
+                "arrivalAirport": "BOM",
+                "arrivalTerminal": "1",
+                "arrivalTime": "2025-08-22T15:05:00.000+05:30",
+                "departureAirport": "DEL",
+                "departureTerminal": "1D",
+                "departureTime": "2025-08-22T13:25:00.000+05:30",
+                "flightNumber": "6E-129",
+                "id": "sample_flight_001",
+                "legs": [
+                    {
+                        "arrivalTerminal": "1",
+                        "departureTerminal": "1D",
+                        "flightNumber": "6E-129"
+                    }
+                ],
+                "stopDetails": "Direct flight",
+                "stops": 0,
+                "totalDuration": "1h 40m"
+            }
+        ],
+        "hotels": [
+            {
+                "amenities": [
+                    "WiFi",
+                    "Pool",
+                    "Spa",
+                    "Restaurant"
+                ],
+                "id": "sample_hotel_001",
+                "location": {
+                    "address": "Apollo Bunder, Mumbai",
+                    "area": "Colaba",
+                    "city": "Mumbai"
+                },
+                "name": "Taj Palace Hotel",
+                "price": {
+                    "amount": 15000,
+                    "currency": "INR"
+                },
+                "rating": 5
+            }
+        ],
+        "search_summary": {
+            "adults": 1,
+            "departure_date": "22/08/2025",
+            "from": "DEL",
+            "to": "BOM",
+            "total_flights_found": 1,
+            "total_hotels_found": 1
+        },
+        "status": "success",
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    return jsonify(sample_response)
+
 @trip_bp.route('/api/trip/health', methods=['GET'])
 def trip_health():
     """Health check for trip planning service"""
@@ -995,7 +1143,8 @@ def trip_health():
             '/api/trip/plan',
             '/api/trip/health',
             '/api/trip/cities',
-            '/api/trip/test-ai'
+            '/api/trip/test-ai',
+            '/api/trip/sample'
         ]
     })
 
