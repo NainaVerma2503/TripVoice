@@ -85,7 +85,7 @@ def call_flight_api(flight_data):
     """
     try:
         # Build the flight API URL with query parameters
-        base_url = 'https://qa2new.cleartrip.com/flight/search/v2'
+        base_url = 'https://beta.cleartrip.com/flight/search/v2'
 
         # Extract parameters from flight_data
         params = {
@@ -292,7 +292,7 @@ def call_hotel_api(hotel_data):
     """
     try:
         # Hotel API endpoint
-        url = 'https://qa2new.cleartrip.com/hotel/orchestrator/v2/search'
+        url = 'https://beta.cleartrip.com/hotel/orchestrator/v2/search'
 
         print(f"🏨 DEBUG: Calling Cleartrip Hotel API with data: {hotel_data}")
 

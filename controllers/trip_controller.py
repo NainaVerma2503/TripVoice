@@ -62,11 +62,16 @@ def get_default_dates():
 def extract_city_info(text, city_type="destination"):
     """Extract city information from text"""
     text_lower = text.lower()
+    print(f"DEBUG: extract_city_info called with text: '{text}', city_type: '{city_type}'")
+    print(f"DEBUG: Looking for city in text_lower: '{text_lower}'")
     
     for city_key, city_info in CITY_MAPPING.items():
+        print(f"DEBUG: Checking city_key: '{city_key}' against text_lower: '{text_lower}'")
         if city_key in text_lower:
+            print(f"DEBUG: Found city match: '{city_key}' → {city_info}")
             return city_info
     
+    print(f"DEBUG: No city found, defaulting to Mumbai")
     # Default to Mumbai if no city found
     return CITY_MAPPING["mumbai"]
 
@@ -80,6 +85,12 @@ def lookup_city_info(city_name):
     # First check our existing mapping
     for city_key, city_info in CITY_MAPPING.items():
         if city_key == city_name_lower or city_info["city"].lower() == city_name_lower:
+            return city_info
+    
+    # Check if it's an airport code (like "DEL", "BOM")
+    for city_key, city_info in CITY_MAPPING.items():
+        if city_info.get("airport", "").upper() == city_name.upper():
+            print(f"DEBUG: Found city by airport code: {city_name} → {city_info}")
             return city_info
     
     # If not found in mapping, return basic info for now
@@ -130,7 +141,9 @@ def post_process_ai_result(ai_result):
 
 def extract_source_and_destination(text):
     """Extract source and destination cities from text"""
+    print(f"DEBUG: extract_source_and_destination called with text: '{text}'")
     text_lower = text.lower()
+    print(f"DEBUG: text_lower: '{text_lower}'")
     
     # Common source indicators
     source_indicators = [
@@ -155,10 +168,32 @@ def extract_source_and_destination(text):
                 dest_city = extract_city_info(match.group(2), "destination")
                 return source_city, dest_city
     
-    # Look for "from X to Y" pattern
+    # Look for "from X to Y" pattern - more flexible
     from_to_pattern = r"from\s+(\w+)\s+to\s+(\w+)"
+    print(f"DEBUG: Checking 'from X to Y' pattern: '{from_to_pattern}' against '{text_lower}'")
     match = re.search(from_to_pattern, text_lower)
     if match:
+        print(f"DEBUG: 'from X to Y' pattern matched: {match.groups()}")
+        source_city = extract_city_info(match.group(1), "source")
+        dest_city = extract_city_info(match.group(2), "destination")
+        return source_city, dest_city
+    
+    # Look for "from X to Y" pattern with any text between
+    from_to_pattern_flexible = r"from\s+(\w+).*?to\s+(\w+)"
+    print(f"DEBUG: Checking flexible 'from X to Y' pattern: '{from_to_pattern_flexible}' against '{text_lower}'")
+    match = re.search(from_to_pattern_flexible, text_lower)
+    if match:
+        print(f"DEBUG: Flexible 'from X to Y' pattern matched: {match.groups()}")
+        source_city = extract_city_info(match.group(1), "source")
+        dest_city = extract_city_info(match.group(2), "destination")
+        return source_city, dest_city
+    
+    # Look for "[city] to [city]" pattern (like "Delhi to Mumbai")
+    city_to_city_pattern = r"(\w+)\s+to\s+(\w+)"
+    print(f"DEBUG: Checking '[city] to [city]' pattern: '{city_to_city_pattern}' against '{text_lower}'")
+    match = re.search(city_to_city_pattern, text_lower)
+    if match:
+        print(f"DEBUG: '[city] to [city]' pattern matched: {match.groups()}")
         source_city = extract_city_info(match.group(1), "source")
         dest_city = extract_city_info(match.group(2), "destination")
         return source_city, dest_city
